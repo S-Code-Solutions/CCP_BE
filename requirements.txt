@@ -1,0 +1,17 @@
+fastapi==0.78.0
+uvicorn==0.17.6
+pydantic==1.9.0
+scikit-learn==1.0.2
+numpy==1.22.3
+pickle5==0.0.11
+
+flask
+numpy
+pandas
+matplotlib
+statsmodels
+scikit-learn
+tensorflow
+keras
+joblib
+
