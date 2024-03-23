@@ -2,7 +2,7 @@ import numpy as np
 from keras.models import load_model
 
 class LSTMService:
-    def __init__(self, model_path='models/lstm_model.pkl'):
+    def __init__(self, model_path='model/lstm_model.h5'):  # Changed extension to .h5
         self.model_path = model_path
         self.model = self.load_model()
 
@@ -21,12 +21,13 @@ class LSTMService:
     def predict(self, input_data):
         """
         Makes predictions based on the loaded LSTM model.
-        :param input_data: Input data for making the prediction. Should be in the correct shape expected by the LSTM model.
-        :return: Predicted values.
+        Adjust the reshaping of input_data according to your model's expected input shape.
         """
-        input_data = np.array(input_data).reshape((1, -1, input_data.shape[-1]))  # Reshape input if necessary
+        # Example reshaping, adjust based on your model's needs
+        if len(input_data.shape) == 1:
+            input_data = np.expand_dims(input_data, axis=0)  # Handling single feature vector
         predictions = self.model.predict(input_data)
-        return predictions.squeeze()  # Remove single-dimensional entries from the shape of an array.
+        return predictions.squeeze()
 
     def preprocess_input(self, data):
         """

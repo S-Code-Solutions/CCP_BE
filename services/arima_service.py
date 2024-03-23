@@ -4,7 +4,7 @@ from statsmodels.tsa.arima.model import ARIMAResults
 from sklearn.metrics import mean_squared_error
 
 class ARIMAService:
-    def __init__(self, model_path='models/arima_model.pkl'):
+    def __init__(self, model_path='model/arima_model.pkl'):
         self.model_path = model_path
         self.model = self.load_model()
 

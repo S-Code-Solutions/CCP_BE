@@ -36,19 +36,6 @@ This project implements a personalized product recommendation system using a mac
    uvicorn app.main:app --reload
    ```
 
-### Frontend Setup
-
-1. Navigate to the `frontend/` directory.
-2. Install the required Node.js dependencies:
-   ```bash
-   npm install
-   ```
-3. Start the Angular development server:
-   ```bash
-   ng serve
-   ```
-4. Visit `http://localhost:4200` in your web browser.
-
 ## Usage
 
 Send a POST request to `http://localhost:8000/recommendations/` with a JSON body containing the user ID and the desired number of recommendations, for example:
@@ -71,15 +58,6 @@ Contributions are welcome! Please submit a pull request or create an issue for a
 This project is licensed under the MIT License - see the LICENSE file for details.
 ```
 
-### Notes
-
-- **Customize the Instructions**: Adjust the setup instructions based on the specific requirements of your project, such as database setup, environment variables, etc.
-- **Dependencies Installation**: Ensure `requirements.txt` and any other dependency files are up to date with your project's requirements.
-- **Usage Section**: Provide examples of how to interact with your API, including any authentication details if required.
-- **Contribution Guidelines**: Encourage contributions by specifying how others can contribute to your project.
-- **License**: Don't forget to include a license for your project. The MIT License is mentioned as an example, but you should choose the license that best fits your project.
-
-This `README.md` serves as a starting point for documenting your project. It's essential to keep it updated as your project evolves.
 
 #------------------------------------------------------------------------------------
 

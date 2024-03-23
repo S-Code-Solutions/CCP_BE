@@ -5,17 +5,22 @@ from server.config import Config
 def create_app():
     # Initialize the Flask app
     app = Flask(__name__)
+    print("app started")
     
     # Apply configuration settings
     app.config.from_object(Config)
     
     # Enable CORS for all domains on all routes
-    # For better security, you can restrict this to the origins you expect
-    # e.g., CORS(app, resources={r"/api/*": {"origins": "http://localhost:4200"}})
     CORS(app)
-
+    
     # Import and register the API blueprints
-    from server.routes import api_bp
-    app.register_blueprint(api_bp, url_prefix='/api')
-
+    from server.routes import api_blueprint
+    app.register_blueprint(api_blueprint, url_prefix="/api")
+    
     return app
+
+# Add this part to run the app
+if __name__ == "__main__":
+    app = create_app()
+    # Optionally, specify the host and port
+    app.run(debug=True, host='0.0.0.0', port=5000)
