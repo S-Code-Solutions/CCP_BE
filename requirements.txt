@@ -19,6 +19,8 @@ python-multipart==0.0.5  # If your API involves file uploads (e.g., images, data
 SQLAlchemy==1.4.23  # If you're interacting with databases
 databases==0.4.3  # Async database support (for async routes)
 aiofiles==0.7.0  # For async file operations
+keras
+tensorflow
 
 
 

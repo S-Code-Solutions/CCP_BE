@@ -9,6 +9,11 @@ from pandas.tseries.offsets import DateOffset
 import numpy as np
 from numpy import int64, float64, ndarray
 
+#from keras.preprocessing.sequence import TimeseriesGenerator
+from tensorflow.keras.preprocessing.sequence import TimeseriesGenerator
+from sklearn.preprocessing import MinMaxScaler
+from tensorflow.keras.models import load_model
+
 
 # Assuming you have a module or package `model` where your prediction functions are defined
 # from model import predict_arima, predict_lstm, get_collab_filtering_recommendations, get_association_rules_recommendations
@@ -28,26 +33,154 @@ def predict_with_arima():
     customer_id = request.args.get("customer_id")
     if not customer_id:
         return jsonify({"error": "Missing 'customer_id' in request"}), 400
-    
+
     arima_model = load_models(ARIMA_MODEL_CUSTOMER_PATH)
     if not arima_model:
         return jsonify({"error": "Model could not be loaded"}), 500
 
-    # Assume we retrieve historical purchase data for this customer
-    # This part is hypothetical and highly dependent on your actual data
-    
     historical_data = retrieve_customer_data(customer_id)  # Placeholder function
-    print(historical_data)
+
     # Preprocess historical_data to match the model's expected input format
     processed_data = preprocess_for_arima(historical_data)  # Placeholder function
 
-    # Make prediction
-    # Here, replace with the actual method to make predictions using your ARIMA model
-    future_purchases_prediction = arima_model.predict(
-        processed_data
-    )  # Hypothetical method
-    
+    processed_data = processed_data.to_numpy()
+    print(processed_data)  # Add this to inspect content
+    print(processed_data.shape)  # Add this to check shape
+
+    print("==============================================")
+    print(processed_data)
+    print("==============================================")
+    # Option 1: Try without 'start' argument (if allowed)
+    # future_purchases_prediction = arima_model.predict(processed_data)
+
+    start_index = 0  # Assuming your data starts at index 0
+    future_purchases_prediction = arima_model.predict(processed_data, start=start_index)
+
     return jsonify({"predicted_purchases": future_purchases_prediction.tolist()})
+
+
+@api_blueprint.route("/predict/arimas", methods=["POST"])
+def predict_with_arimas():
+    customer_id = request.args.get("customer_id")
+    if not customer_id:
+        return jsonify({"error": "Missing 'customer_id' in request"}), 400
+
+    arima_model = load_models(ARIMA_MODEL_PATH)
+    if arima_model is None:
+        return jsonify({"error": "Model could not be loaded"}), 500
+
+    # The ARIMA model loaded here is already trained and understands the timing from the training data
+    # Let's assume we want to predict the next 5 periods
+    steps_ahead = 5
+    try:
+        end_index = len(arima_model.model.endog) + steps_ahead - 1
+        prediction = arima_model.get_forecast(steps=steps_ahead)
+        forecast_values = prediction.predicted_mean
+    except Exception as e:
+        print(f"Error making prediction: {e}")
+        return jsonify({"error": "Failed to make prediction"}), 500
+
+    return jsonify({"predicted_purchases": forecast_values.tolist()})
+
+
+@api_blueprint.route("/predict/comprehensive", methods=["GET"])
+def predict_comprehensive():
+    customer_id = request.args.get("customer_id")
+    if not customer_id:
+        return jsonify({"error": "Missing 'customer_id' in request"}), 400
+
+    customer_data = retrieve_customer_data(customer_id)
+
+    # Load models
+    arima_model = load_models(ARIMA_MODEL_PATH)
+    lstm_model = load_keras_model(LSTM_MODEL_PATH)
+
+    if arima_model is None or lstm_model is None:
+        return jsonify({"error": "Model could not be loaded"}), 500
+
+    # Preprocess data
+    data_for_arima = preprocess_for_arima(customer_data)
+    data_for_lstm = preprocess_data_for_lstm(customer_data)
+
+    # Predict with ARIMA
+    arima_prediction = arima_model.predict(
+        data_for_arima
+    )  # Simplified, replace with actual ARIMA prediction logic
+    # Predict with LSTM
+    lstm_prediction = lstm_model.predict(
+        data_for_lstm
+    )  # Simplified, replace with actual LSTM prediction logic
+
+    # Example post-processing of predictions
+    predicted_purchases = arima_prediction.tolist()
+    predicted_next_product = np.argmax(lstm_prediction, axis=-1)[0]  # Example logic
+
+    # Example response combining both predictions
+    response = {
+        "customer_id": customer_id,
+        "predicted_purchases": predicted_purchases,
+        "predicted_next_product": predicted_next_product,
+        # Add other predictions as needed
+    }
+
+    return jsonify(response)
+
+
+def preprocess_data_for_lstm(customer_data, look_back=5):
+    """
+    Preprocess customer purchase history for LSTM model.
+
+    Args:
+    - customer_data: DataFrame containing customer's purchase history.
+    - look_back: Number of time steps to look back for generating sequences.
+
+    Returns:
+    - Numpy arrays of sequences ready for LSTM modeling.
+    """
+    # Convert 'Crawl_timestamp' to datetime and set as index
+    # customer_data['Crawl_timestamp'] = pd.to_datetime(customer_data['Crawl_timestamp'])
+    customer_data["Crawl_timestamp"] = pd.to_datetime(
+        df["Crawl_timestamp"], format="%Y-%m-%d %H:%M:%S", errors="coerce"
+    )
+    customer_data = customer_data.set_index("Crawl_timestamp")
+
+    # Assuming 'Number_purchases' as target, rest as features (simplification)
+    features = customer_data.drop(
+        [
+            "Number_purchases",
+            "Invoice_no",
+            "Customer_id",
+            "Product_title",
+            "Product_Category",
+            "Brand",
+            "Pay_method",
+            "Customer_gender",
+            "Browser",
+            "Site_name",
+        ],
+        axis=1,
+    )
+
+    target = customer_data["Number_purchases"]
+
+    # Normalize features
+    scaler = MinMaxScaler(feature_range=(0, 1))
+    scaled_features = scaler.fit_transform(features)
+    scaled_target = scaler.fit_transform(target.values.reshape(-1, 1))
+
+    # Generate sequences using TimeseriesGenerator
+    generator = TimeseriesGenerator(
+        scaled_features, scaled_target, length=look_back, batch_size=1
+    )
+
+    # Prepare input for LSTM
+    X, y = [], []
+    for i in range(len(generator)):
+        x_batch, y_batch = generator[i]
+        X.append(x_batch[0])
+        y.append(y_batch[0])
+
+    return np.array(X), np.array(y)
 
 
 @api_blueprint.route("/predict/lstm", methods=["POST"])
@@ -95,8 +228,11 @@ def retrieve_customer_data(customer_id):
     # For demonstration, let's assume we're reading from a CSV for simplicity
     df = pd.read_csv("model/Customer_dataset.csv")
 
+    customer_data = df[df["Customer_id"] == int(customer_id)]
+
+    # customer_data = df[df['Customer_id'] == customer_id_str]
+
     # Filter records by customer_id
-    customer_data = df[df["Customer_id"] == customer_id]
 
     # Select only relevant columns
     historical_data = customer_data[["Crawl_timestamp", "Number_purchases"]]
@@ -114,8 +250,15 @@ def preprocess_for_arima(historical_data):
     Returns:
     - A processed pandas Series ready for ARIMA modeling, indexed by date.
     """
+    # Clean timestamp strings
+    historical_data["Crawl_timestamp"] = historical_data["Crawl_timestamp"].str.strip(
+        " 0"
+    )
+
     # Convert 'purchase_date' to datetime and set as index
-    historical_data["Crawl_timestamp"] = pd.to_datetime(historical_data["Crawl_timestamp"])
+    historical_data["Crawl_timestamp"] = pd.to_datetime(
+        historical_data["Crawl_timestamp"]
+    )
     historical_data.set_index("Crawl_timestamp", inplace=True)
 
     # Ensure it's daily data by resampling and filling missing dates with 0
@@ -142,6 +285,13 @@ def load_models(model_path):
         raise FileNotFoundError(f"Model file not found at {model_path}")
     with open(model_path, "rb") as file:
         model = joblib.load(file)
+    return model
+
+def load_keras_model(model_path):
+    """Helper function to load a Keras model from a given path."""
+    if not os.path.exists(model_path):
+        raise FileNotFoundError(f"Model file not found at {model_path}")
+    model = load_model(model_path)
     return model
 
 
