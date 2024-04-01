@@ -108,6 +108,10 @@ pip install -r requirements.txt
 
 Copy `.env.example` to `.env` and adjust the variables as needed.
 
+. Activate the virtual environment:
+   - On Windows: `venv\Scripts\activate`
+   - On macOS/Linux: `source venv/bin/activate`
+
 5. Run the server:
 
 ```bash

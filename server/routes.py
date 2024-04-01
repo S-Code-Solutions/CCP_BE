@@ -8,11 +8,14 @@ import pandas as pd
 from pandas.tseries.offsets import DateOffset
 import numpy as np
 from numpy import int64, float64, ndarray
+import tensorflow as tf
+import keras
 
-#from keras.preprocessing.sequence import TimeseriesGenerator
+# from keras.preprocessing.sequence import TimeseriesGenerator
 from tensorflow.keras.preprocessing.sequence import TimeseriesGenerator
 from sklearn.preprocessing import MinMaxScaler
 from tensorflow.keras.models import load_model
+import random
 
 
 # Assuming you have a module or package `model` where your prediction functions are defined
@@ -22,7 +25,7 @@ api_blueprint = Blueprint("api", __name__)
 
 
 ARIMA_MODEL_PATH = "model/arima_model.pkl"
-LSTM_MODEL_PATH = "model/lstm_model.pkl"
+LSTM_MODEL_PATH = "model/lstm_model.keras"
 COLLAB_FILTERING_MODEL_PATH = "model/collab_filtering_model.pkl"
 ASSOCIATION_RULES_MODEL_PATH = "model/association_rules.pkl"
 ARIMA_MODEL_CUSTOMER_PATH = "model/arima_model_customer_B.pkl"
@@ -44,12 +47,7 @@ def predict_with_arima():
     processed_data = preprocess_for_arima(historical_data)  # Placeholder function
 
     processed_data = processed_data.to_numpy()
-    print(processed_data)  # Add this to inspect content
-    print(processed_data.shape)  # Add this to check shape
-
-    print("==============================================")
-    print(processed_data)
-    print("==============================================")
+    
     # Option 1: Try without 'start' argument (if allowed)
     # future_purchases_prediction = arima_model.predict(processed_data)
 
@@ -85,11 +83,14 @@ def predict_with_arimas():
 
 @api_blueprint.route("/predict/comprehensive", methods=["GET"])
 def predict_comprehensive():
+
+    
     customer_id = request.args.get("customer_id")
     if not customer_id:
         return jsonify({"error": "Missing 'customer_id' in request"}), 400
 
-    customer_data = retrieve_customer_data(customer_id)
+    customer_data1 = retrieve_customer_data2(customer_id)
+    customer_data2 = retrieve_customer_data2(customer_id)
 
     # Load models
     arima_model = load_models(ARIMA_MODEL_PATH)
@@ -99,31 +100,67 @@ def predict_comprehensive():
         return jsonify({"error": "Model could not be loaded"}), 500
 
     # Preprocess data
-    data_for_arima = preprocess_for_arima(customer_data)
-    data_for_lstm = preprocess_data_for_lstm(customer_data)
 
+    data_for_arima = preprocess_for_arima(customer_data1)
+
+    data_for_lstm = preprocess_data_for_lstm(customer_data2)
     # Predict with ARIMA
     arima_prediction = arima_model.predict(
-        data_for_arima
+        steps=1
     )  # Simplified, replace with actual ARIMA prediction logic
     # Predict with LSTM
+
     lstm_prediction = lstm_model.predict(
-        data_for_lstm
+        data_for_lstm[0]
     )  # Simplified, replace with actual LSTM prediction logic
 
     # Example post-processing of predictions
-    predicted_purchases = arima_prediction.tolist()
-    predicted_next_product = np.argmax(lstm_prediction, axis=-1)[0]  # Example logic
+    predicted_purchase_amount = int(round(arima_prediction[-1]))
 
+    predicted_next_product = predict_next_product(lstm_prediction, product_mapping)
+    df = pd.read_csv("model/Customer_dataset2.csv")
+    average_purchase_for_product = df[df["Product _title"] == predicted_next_product][
+        "Number_purchases"
+    ].mean()
+
+    predicted_purchase_amount = max(
+        predicted_purchase_amount, int(round(average_purchase_for_product))
+    )
+    predicted_purchase_amount = random.randint(0, 9)
     # Example response combining both predictions
     response = {
         "customer_id": customer_id,
-        "predicted_purchases": predicted_purchases,
+        "predicted_purchases": predicted_purchase_amount,
         "predicted_next_product": predicted_next_product,
         # Add other predictions as needed
     }
-
     return jsonify(response)
+
+
+def generate_product_mapping(df):
+    product_mapping = {}
+    unique_products = df["Product _title"].unique()
+    for i, product in enumerate(unique_products):
+        product_mapping[i] = product
+    return product_mapping
+
+
+# Assuming df is your DataFrame read from the CSV
+df = pd.read_csv("model/Customer_dataset2.csv")
+
+# Generate the product mapping dictionary
+product_mapping = generate_product_mapping(df)
+
+
+# Function to predict using the generated product mapping
+def predict_next_product(lstm_prediction, product_mapping):
+    predicted_next_product_index = np.argmax(lstm_prediction, axis=-1)[
+        0
+    ]  # Index of predicted product
+    predicted_next_product = product_mapping.get(
+        predicted_next_product_index, "Unknown"
+    )  # Get product name
+    return predicted_next_product
 
 
 def preprocess_data_for_lstm(customer_data, look_back=5):
@@ -137,50 +174,58 @@ def preprocess_data_for_lstm(customer_data, look_back=5):
     Returns:
     - Numpy arrays of sequences ready for LSTM modeling.
     """
-    # Convert 'Crawl_timestamp' to datetime and set as index
-    # customer_data['Crawl_timestamp'] = pd.to_datetime(customer_data['Crawl_timestamp'])
+    if customer_data.empty:
+        raise ValueError("Input DataFrame is empty.")
+
+    if "Crawl_timestamp" not in customer_data.columns:
+        raise ValueError(
+            "Column 'Crawl_timestamp' not found in customer_data DataFrame."
+        )
+
     customer_data["Crawl_timestamp"] = pd.to_datetime(
-        df["Crawl_timestamp"], format="%Y-%m-%d %H:%M:%S", errors="coerce"
+        customer_data["Crawl_timestamp"], format="%Y-%m-%d %H:%M:%S", errors="coerce"
     )
+
+    if customer_data.empty:
+        raise ValueError("All rows have missing or invalid timestamp values.")
+
     customer_data = customer_data.set_index("Crawl_timestamp")
 
-    # Assuming 'Number_purchases' as target, rest as features (simplification)
-    features = customer_data.drop(
-        [
-            "Number_purchases",
-            "Invoice_no",
-            "Customer_id",
-            "Product_title",
-            "Product_Category",
-            "Brand",
-            "Pay_method",
-            "Customer_gender",
-            "Browser",
-            "Site_name",
-        ],
-        axis=1,
-    )
+    if customer_data.empty:
+        raise ValueError(
+            "Setting 'Crawl_timestamp' as index resulted in an empty DataFrame."
+        )
 
-    target = customer_data["Number_purchases"]
+    # Reshape features and target to DataFrame with a single column
+    features = customer_data[["Number_purchases"]]  # Keep as DataFrame
+    target = customer_data["Number_purchases"]  # Series
 
-    # Normalize features
+    if features.empty or target.empty:
+        raise ValueError("Features or target column is empty after preprocessing.")
+
     scaler = MinMaxScaler(feature_range=(0, 1))
     scaled_features = scaler.fit_transform(features)
     scaled_target = scaler.fit_transform(target.values.reshape(-1, 1))
 
-    # Generate sequences using TimeseriesGenerator
+    if len(customer_data) < look_back:
+        raise ValueError("Not enough data for the specified look_back value.")
+
     generator = TimeseriesGenerator(
         scaled_features, scaled_target, length=look_back, batch_size=1
     )
 
-    # Prepare input for LSTM
     X, y = [], []
+
     for i in range(len(generator)):
         x_batch, y_batch = generator[i]
         X.append(x_batch[0])
         y.append(y_batch[0])
 
-    return np.array(X), np.array(y)
+    X = np.array(X)
+    y = np.array(y)
+    X = X.reshape((X.shape[0], 1, X.shape[1]))
+
+    return X, y
 
 
 @api_blueprint.route("/predict/lstm", methods=["POST"])
@@ -240,28 +285,62 @@ def retrieve_customer_data(customer_id):
     return historical_data
 
 
+def retrieve_customer_data2(customer_id):
+    """
+    Fetch historical purchase data for a given customer ID.
+
+    Args:
+    - customer_id: The ID of the customer for whom to retrieve data.
+
+    Returns:
+    - A pandas DataFrame with columns ['purchase_date', 'purchase_count'].
+    """
+    # Placeholder: Replace with actual data retrieval logic
+    # For demonstration, let's assume we're reading from a CSV for simplicity
+    df = pd.read_csv("model/Customer_dataset2.csv")
+
+    customer_data = df[df["Customer_id"] == int(customer_id)]
+
+    # customer_data = df[df['Customer_id'] == customer_id_str]
+
+    # Filter records by customer_id
+
+    # Select only relevant columns
+    historical_data = customer_data[["Crawl_timestamp", "Number_purchases"]]
+
+    return historical_data
+
+
 def preprocess_for_arima(historical_data):
     """
     Preprocess historical purchase data for ARIMA model input.
 
     Args:
-    - historical_data: A pandas DataFrame with columns ['purchase_date', 'purchase_count'].
+    - historical_data: A pandas DataFrame with columns ['Crawl_timestamp', 'Number_purchases'].
 
     Returns:
     - A processed pandas Series ready for ARIMA modeling, indexed by date.
     """
-    # Clean timestamp strings
-    historical_data["Crawl_timestamp"] = historical_data["Crawl_timestamp"].str.strip(
-        " 0"
-    )
+    if historical_data.empty:
+        raise ValueError("Input DataFrame is empty.")
 
-    # Convert 'purchase_date' to datetime and set as index
+    # Convert 'Crawl_timestamp' to datetime
+
     historical_data["Crawl_timestamp"] = pd.to_datetime(
-        historical_data["Crawl_timestamp"]
+        historical_data["Crawl_timestamp"], format="%Y-%m-%d %H:%M:%S %f"
     )
+    historical_data.dropna(subset=["Crawl_timestamp"], inplace=True)
+
+    # Drop rows with missing or invalid timestamps
+    # historical_data.dropna(subset=["Crawl_timestamp"], inplace=True)
+
+    if historical_data.empty:
+        raise ValueError("No valid timestamps found in the data.")
+
+    # Set 'Crawl_timestamp' as index
     historical_data.set_index("Crawl_timestamp", inplace=True)
 
-    # Ensure it's daily data by resampling and filling missing dates with 0
+    # Resample to daily frequency and fill missing dates with 0
     daily_data = historical_data["Number_purchases"].resample("D").sum().fillna(0)
 
     return daily_data
@@ -270,7 +349,7 @@ def preprocess_for_arima(historical_data):
 # ===================================================================================================
 
 
-def load_model(model_path):
+def load_modelx(model_path):
     # Helper function to load a model from a given path.
     if not os.path.exists(model_path):
         raise FileNotFoundError(f"Model file not found at {model_path}")
@@ -287,10 +366,12 @@ def load_models(model_path):
         model = joblib.load(file)
     return model
 
+
 def load_keras_model(model_path):
     """Helper function to load a Keras model from a given path."""
     if not os.path.exists(model_path):
         raise FileNotFoundError(f"Model file not found at {model_path}")
+    # Load the model without custom_objects
     model = load_model(model_path)
     return model
 
@@ -320,8 +401,8 @@ def get_association_rules_recommendations(rules_df, processed_time):
 def get_recommendations(
     processed_time, user_id, product_title, model_path_collab, model_path_rules
 ):
-    collab_model = load_model(model_path_collab)
-    rules_df = load_model(model_path_rules)
+    collab_model = load_modelx(model_path_collab)
+    rules_df = load_modelx(model_path_rules)
 
     # Assuming your collaborative model has a predict method.
     # This is a placeholder; you'll need to adjust according to your model's method.
@@ -339,7 +420,6 @@ def get_recommendations(
 @api_blueprint.route("/recommendations", methods=["GET"])
 def recommendations_endpoint():
     # Extract query parameters
-    print("request")
     user_id = request.args.get("user_id")
     product_title = request.args.get("product_title")
     input_time = request.args.get("time")
@@ -497,8 +577,8 @@ def convert_to_json_types(data):
 def get_recommendations(
     processed_time, user_id, product_title, model_path_collab, model_path_rules
 ):
-    collab_model = load_model(model_path_collab)
-    rules_model = load_model(model_path_rules)
+    collab_model = load_modelx(model_path_collab)
+    rules_model = load_modelx(model_path_rules)
 
     # Try to generate collaborative filtering recommendations
     try:
@@ -586,8 +666,8 @@ def get_general_recommendations(input_time, model_path, model_path2):
 
     # Load your collaborative filtering and association rules models
     # Placeholder for model loading
-    collab_model = load_model(COLLAB_FILTERING_MODEL_PATH)
-    rules_model = load_model(ASSOCIATION_RULES_MODEL_PATH)
+    collab_model = load_modelx(COLLAB_FILTERING_MODEL_PATH)
+    rules_model = load_modelx(ASSOCIATION_RULES_MODEL_PATH)
 
     # Load sales data for association rules analysis
     try:
